@@ -1,3 +1,4 @@
+<!-- Version 13.30 -- >
 <!DOCTYPE html>
 <html lang="sv">
 <head>
@@ -60,7 +61,7 @@
     .alert.danger{ background: var(--danger-bg); color: var(--danger); }
     .alert.ok{ background: var(--ok-bg); color: var(--ok); }
 
-    label{ font-weight:800; display:block; margin:12px 0 8px; }
+    label{ font-weight:900; display:block; margin:12px 0 8px; }
     textarea{
       width:100%;
       min-height:120px;
@@ -113,7 +114,7 @@
       border-radius:999px;
       padding:8px 12px;
       cursor:pointer;
-      font-weight:800;
+      font-weight:900;
     }
 
     details{
@@ -123,10 +124,7 @@
       background:#f9fafb;
       padding:10px 12px;
     }
-    summary{
-      cursor:pointer;
-      font-weight:900;
-    }
+    summary{ cursor:pointer; font-weight:900; }
     pre{
       margin:10px 0 0 0;
       font-size:12px;
@@ -138,7 +136,6 @@
       overflow:auto;
       max-height:240px;
     }
-
     .tiny{
       margin-top:10px;
       color:var(--muted);
@@ -152,7 +149,7 @@
     }
   </style>
 
-  <!-- VIKTIGT: ny TFJS-version -->
+  <!-- TFJS 4.22.0 (matchar din export bättre) -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
 </head>
 
@@ -168,9 +165,11 @@
     <textarea id="text" placeholder="Skriv ditt omdöme här… Till exempel: 'Fantastisk film med otroliga effekter!'"></textarea>
 
     <div class="row">
-      <button id="btnAnalyze" onclick="analyze()" disabled>Analysera känsla</button>
+      <!-- VIKTIGT: INTE disabled längre. Klick visar fel om modellen inte är laddad. -->
+      <button id="btnAnalyze" onclick="analyze()">Analysera känsla</button>
       <button class="secondary" onclick="reloadModel()">Ladda om modellen</button>
       <span class="tiny">Modell: <code class="small">./tfjs_model/model.json</code></span>
+      <span class="tiny" id="status"></span>
     </div>
 
     <div id="result" class="result"></div>
@@ -184,16 +183,16 @@
       </div>
     </div>
 
-    <details open>
+    <details>
       <summary>🧪 Debug (klicka för att fälla in/ut)</summary>
-      <div class="tiny">Här ser du exakt vad som laddas (och om model.json har batch_shape eller batch_input_shape).</div>
+      <div class="tiny">Här ser du exakt vad som laddas + statuskoder.</div>
       <pre id="debug"></pre>
     </details>
   </div>
 
 <script>
-  // ÄNDRA BUILD varje gång du uppdaterar filer i GitHub (tvingar bort cache)
-  const BUILD = "2026-01-18-05";
+  // Byt gärna BUILD när du uppdaterar (cache-buster)
+  const BUILD = "2026-01-18-08";
 
   const MODEL_URL = `./tfjs_model/model.json?v=${BUILD}`;
   const TOKENIZER_URL = `./tfjs_model/tokenizer.json?v=${BUILD}`;
@@ -205,9 +204,9 @@
     alert: document.getElementById('alert'),
     ok: document.getElementById('ok'),
     text: document.getElementById('text'),
-    btn: document.getElementById('btnAnalyze'),
     result: document.getElementById('result'),
     debug: document.getElementById('debug'),
+    status: document.getElementById('status'),
   };
 
   function log(line){
@@ -230,8 +229,9 @@
     els.alert.textContent = '';
     els.ok.textContent = '';
   }
-  function setAnalyzeEnabled(enabled) {
-    els.btn.disabled = !enabled;
+
+  function setStatus(s){
+    els.status.textContent = s ? `Status: ${s}` : "";
   }
 
   function normalizeText(s) {
@@ -285,17 +285,18 @@
   }
 
   function inspectModelJsonText(txt){
-    const hasBatchShape = txt.includes('"batch_shape"') || txt.includes("batch_shape");
-    const hasBatchInputShape = txt.includes('"batch_input_shape"') || txt.includes("batch_input_shape");
-    const hasInputShape = txt.includes('"input_shape"') || txt.includes("input_shape");
-    return { hasBatchShape, hasBatchInputShape, hasInputShape };
+    return {
+      hasBatchShape: txt.includes('"batch_shape"') || txt.includes("batch_shape"),
+      hasBatchInputShape: txt.includes('"batch_input_shape"') || txt.includes("batch_input_shape"),
+      hasInputShape: txt.includes('"input_shape"') || txt.includes("input_shape")
+    };
   }
 
   async function loadAll() {
     clearMessages();
-    setAnalyzeEnabled(false);
     els.result.style.display = 'none';
     els.debug.textContent = '';
+    setStatus("Laddar...");
 
     log("TFJS version: " + (tf?.version?.tfjs ?? "okänd"));
     log("BUILD: " + BUILD);
@@ -306,7 +307,7 @@
     try {
       const mj = await fetchText(MODEL_URL);
       log(`model.json status: ${mj.status}`);
-      if (!mj.ok) throw new Error(`Hittar inte model.json (${mj.status}). Kontrollera sökvägen.`);
+      if (!mj.ok) throw new Error(`Hittar inte model.json (${mj.status}).`);
 
       const flags = inspectModelJsonText(mj.text);
       log("model.json innehåller:");
@@ -317,11 +318,112 @@
 
       const tj = await fetch(TOKENIZER_URL, { cache: "no-store" });
       log(`tokenizer.json status: ${tj.status}`);
-      if (!tj.ok) throw new Error(`Hittar inte tokenizer.json (${tj.status}). Kontrollera sökvägen.`);
+      if (!tj.ok) throw new Error(`Hittar inte tokenizer.json (${tj.status}).`);
       tokenizer = await tj.json();
 
       await tf.setBackend('webgl');
       await tf.ready();
       log("Backend: " + tf.getBackend());
 
-      // Ladda modellen från URL (inte från text)
+      // Om detta kraschar är det fortfarande ett model.json-formatproblem
+      model = await tf.loadLayersModel(MODEL_URL);
+
+      const inShape = model?.inputs?.[0]?.shape ? JSON.stringify(model.inputs[0].shape) : '(okänd)';
+      const outShape = model?.outputs?.[0]?.shape ? JSON.stringify(model.outputs[0].shape) : '(okänd)';
+      showOk(`Modellen är laddad. Input: ${inShape}, Output: ${outShape}`);
+      setStatus("Modell laddad ✅");
+
+      log("Model loaded OK");
+      log("Input: " + inShape);
+      log("Output: " + outShape);
+
+    } catch (err) {
+      console.error(err);
+      showError(err?.message || String(err));
+      setStatus("Modell ej laddad ❌");
+      log("ERROR: " + (err?.message || String(err)));
+      model = null;
+      tokenizer = null;
+    }
+  }
+
+  async function reloadModel() {
+    try { if (model?.dispose) model.dispose(); } catch {}
+    model = null;
+    tokenizer = null;
+    await loadAll();
+  }
+
+  function labelFromScores(arr) {
+    if (arr.length === 3) {
+      let best = 0;
+      for (let i = 1; i < 3; i++) if (arr[i] > arr[best]) best = i;
+      return { label: ['Negativ', 'Neutral', 'Positiv'][best], scores: arr };
+    }
+    if (arr.length === 2) return { label: (arr[1] >= arr[0]) ? 'Positiv' : 'Negativ', scores: arr };
+    if (arr.length === 1) {
+      const p = arr[0];
+      if (p >= 0.6) return { label: 'Positiv', scores: [p] };
+      if (p <= 0.4) return { label: 'Negativ', scores: [p] };
+      return { label: 'Neutral', scores: [p] };
+    }
+    let best = 0;
+    for (let i = 1; i < arr.length; i++) if (arr[i] > arr[best]) best = i;
+    return { label: `Klass ${best}`, scores: arr };
+  }
+
+  async function analyze() {
+    clearMessages();
+    els.result.style.display = 'none';
+
+    const text = els.text.value.trim();
+    if (!text) return showError('Skriv ett omdöme först.');
+
+    // Viktigt: knappen är klickbar, men vi kräver att modellen är laddad:
+    if (!model || !tokenizer) {
+      return showError(
+        "Modellen är inte laddad ännu.\n" +
+        "Klicka “Ladda om modellen” och kontrollera Debug-rutan för statuskoder (200/404)."
+      );
+    }
+
+    try {
+      const { padded, maxLen } = textToPaddedSequence(text);
+
+      // int32 till Embedding
+      const inputTensor = tf.tensor2d([padded], [1, maxLen], 'int32');
+
+      const out = model.predict(inputTensor);
+      const data = await out.data();
+
+      inputTensor.dispose();
+      if (out?.dispose) out.dispose();
+
+      const arr = Array.from(data);
+      const { label, scores } = labelFromScores(arr);
+
+      els.result.style.display = 'block';
+      els.result.innerHTML =
+        `<strong>Resultat: ${label}</strong>
+         <div style="margin-top:8px;color:#374151;">
+           Scores: ${scores.map(x => (typeof x === 'number' ? x.toFixed(4) : x)).join(', ')}
+         </div>`;
+    } catch (err) {
+      console.error(err);
+      showError(err?.message || String(err));
+      log("PREDICT ERROR: " + (err?.message || String(err)));
+    }
+  }
+
+  function setExample(s) {
+    els.text.value = s;
+    els.text.focus();
+  }
+
+  // Viktigt: kör säkert efter att DOM + scripts är klara
+  window.addEventListener("load", () => {
+    loadAll();
+  });
+</script>
+</body>
+</html>
