@@ -1,13 +1,9 @@
 <!DOCTYPE html>
 <html lang="sv">
-<!-- 
-  VIKTIGT: Denna fil MÅSTE sparas som UTF-8 encoding 
-  för att svenska tecken ska visas korrekt!
--->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Filmomdöme-klassificerare - Lite Data</title>
+    <title>AI Filmomdöme-klassificerare</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.11.0"></script>
     <style>
@@ -25,6 +21,28 @@
             justify-content: center;
             align-items: center;
             padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        
+        .subtitle {
+            color: #666;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 14px;
         }
         
         .status {
@@ -52,28 +70,6 @@
             display: block;
             background: #e8f5e9;
             color: #2e7d32;
-        }
-        
-        .container {
-            background: white;
-            border-radius: 20px;
-            padding: 40px;
-            max-width: 600px;
-            width: 100%;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-        }
-        
-        h1 {
-            color: #333;
-            margin-bottom: 10px;
-            text-align: center;
-        }
-        
-        .subtitle {
-            color: #666;
-            text-align: center;
-            margin-bottom: 30px;
-            font-size: 14px;
         }
         
         .input-group {
@@ -222,13 +218,6 @@
         .bar-fill.neu { background: #ffc107; }
         .bar-fill.pos { background: #28a745; }
         
-        .loading {
-            text-align: center;
-            color: #667eea;
-            margin-top: 20px;
-            display: none;
-        }
-        
         .examples {
             margin-top: 30px;
             padding: 20px;
@@ -264,6 +253,7 @@
     <div class="container">
         <h1>🎬 AI Filmomdöme-klassificerare</h1>
         <p class="subtitle">Skriv ett omdöme och låt AI:n avgöra om det är positivt, negativt eller neutralt</p>
+        
         <div class="status" id="status"></div>
         
         <div class="input-group">
@@ -276,10 +266,6 @@
         </div>
         
         <button id="analyzeBtn" onclick="analyzeSentiment()">Analysera känsla</button>
-        
-        <div class="loading" id="loading">
-            Laddar modell... ⏳
-        </div>
         
         <div class="result" id="result">
             <div class="result-title" id="resultTitle"></div>
@@ -338,6 +324,7 @@
                 // Ladda TensorFlow.js modellen
                 model = await tf.loadLayersModel('./tfjs_model/model.json');
                 console.log('Modell laddad!');
+                console.log('Model input shape:', model.inputs[0].shape);
                 
                 // Ladda tokenizer-konfiguration
                 const response = await fetch('./tfjs_model/tokenizer.json');
@@ -346,6 +333,7 @@
                 }
                 tokenizer = await response.json();
                 console.log('Tokenizer laddad!');
+                console.log('Max length:', tokenizer.max_length);
                 
                 showStatus('✓ Modell laddad och redo!', 'success');
                 analyzeBtn.disabled = false;
@@ -395,24 +383,37 @@
                 return;
             }
             
-            // Tokenisera input
-            const sequence = tokenizeText(text);
-            const inputTensor = tf.tensor2d([sequence]);
-            
-            // Gör prediction
-            const prediction = await model.predict(inputTensor).data();
-            
-            // Hitta den högsta sannolikheten
-            const sentiments = ['negativ', 'neutral', 'positiv'];
-            const maxIndex = prediction.indexOf(Math.max(...prediction));
-            const sentiment = sentiments[maxIndex];
-            const confidence = (prediction[maxIndex] * 100).toFixed(1);
-            
-            // Visa resultat
-            showResult(sentiment, confidence, prediction);
-            
-            // Rensa tensor
-            inputTensor.dispose();
+            try {
+                // Tokenisera input
+                const sequence = tokenizeText(text);
+                console.log('Sequence:', sequence);
+                
+                // Skapa input tensor med rätt shape [batchSize, sequenceLength]
+                const inputTensor = tf.tensor2d([sequence], [1, tokenizer.max_length]);
+                console.log('Input shape:', inputTensor.shape);
+                
+                // Gör prediction
+                const predictionTensor = model.predict(inputTensor);
+                const prediction = await predictionTensor.data();
+                console.log('Prediction:', prediction);
+                
+                // Hitta den högsta sannolikheten
+                const sentiments = ['negativ', 'neutral', 'positiv'];
+                const maxIndex = prediction.indexOf(Math.max(...prediction));
+                const sentiment = sentiments[maxIndex];
+                const confidence = (prediction[maxIndex] * 100).toFixed(1);
+                
+                // Visa resultat
+                showResult(sentiment, confidence, prediction);
+                
+                // Rensa tensors
+                inputTensor.dispose();
+                predictionTensor.dispose();
+                
+            } catch (error) {
+                console.error('Fel vid prediction:', error);
+                alert('Fel vid analys: ' + error.message);
+            }
         }
         
         // Visa resultat
