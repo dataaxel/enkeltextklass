@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="sv">
-<!-- Open AI -->
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -29,7 +28,7 @@
       padding:24px;
     }
     .card{
-      width:min(720px, 100%);
+      width:min(760px, 100%);
       background:var(--card);
       border-radius:18px;
       box-shadow: 0 18px 50px rgba(0,0,0,.25);
@@ -55,6 +54,7 @@
       border:1px solid rgba(0,0,0,.05);
       font-size:14px;
       line-height:1.35;
+      white-space: pre-wrap;
     }
     .alert.danger{ background: var(--danger-bg); color: var(--danger); }
     .alert.ok{ background: var(--ok-bg); color: var(--ok); }
@@ -81,7 +81,7 @@
       border:0;
       border-radius:12px;
       padding:12px 14px;
-      font-weight:700;
+      font-weight:800;
       cursor:pointer;
       color:#fff;
       background:var(--btn);
@@ -112,7 +112,7 @@
       border-radius:999px;
       padding:8px 12px;
       cursor:pointer;
-      font-weight:600;
+      font-weight:700;
     }
     .tiny{
       margin-top:10px;
@@ -127,7 +127,7 @@
     }
   </style>
 
-  <!-- Viktigt: matcha nyare TFJS så den kan läsa din model.json -->
+  <!-- Viktigt: använd TFJS 4.22.0 (matchar converter-formatet bättre) -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
 </head>
 
@@ -151,7 +151,7 @@
     <div id="result" class="result"></div>
 
     <div class="pill-row">
-      <div style="font-weight:700; margin-bottom:10px;">💡 Prova dessa exempel:</div>
+      <div style="font-weight:800; margin-bottom:10px;">💡 Prova dessa exempel:</div>
       <div class="row">
         <button class="pill" onclick="setExample('Det här var en fantastisk film, jag älskade den!')">Positiv</button>
         <button class="pill" onclick="setExample('Riktigt dålig film, slöseri med tid.')">Negativ</button>
@@ -163,18 +163,15 @@
   </div>
 
 <script>
-  // ---- Konfiguration ----
+  // ======= KONFIG =======
   const MODEL_URL = './tfjs_model/model.json';
   const TOKENIZER_URL = './tfjs_model/tokenizer.json';
 
+  // Output-etiketter (vanlig ordning: 0=neg,1=neu,2=pos)
+  const LABELS = ['Negativ', 'Neutral', 'Positiv'];
+
   let model = null;
   let tokenizer = null;
-
-  // Förväntad struktur (men vi försöker vara robusta):
-  // tokenizer.word_index : { "bra": 123, ... }
-  // tokenizer.max_length : 20
-  // tokenizer.oov_token / tokenizer.oov_index (valfritt)
-  const DEFAULT_MAX_LEN = 20;
 
   const els = {
     alert: document.getElementById('alert'),
@@ -185,6 +182,7 @@
     debug: document.getElementById('debug')
   };
 
+  // ======= UI =======
   function showError(msg) {
     els.alert.style.display = 'block';
     els.ok.style.display = 'none';
@@ -205,105 +203,85 @@
     els.btn.disabled = !enabled;
   }
 
-  // ---- Tokenisering / preprocessing ----
+  // ======= TOKENIZER (robust läsning) =======
   function normalizeText(s) {
     return (s || '')
       .toLowerCase()
-      // behåll a-ö + mellanslag, ersätt annat med mellanslag
       .replace(/[^a-zåäö0-9\s]+/gi, ' ')
       .replace(/\s+/g, ' ')
       .trim();
   }
 
-  function getTokenizerWordIndex(tokObj) {
-    // Vanliga varianter
-    if (tokObj?.word_index) return tokObj.word_index;
-    if (tokObj?.wordIndex) return tokObj.wordIndex;
-    if (tokObj?.config?.word_index) return tokObj.config.word_index;
-    if (tokObj?.config?.wordIndex) return tokObj.config.wordIndex;
-    return null;
+  function getWordIndex(tok) {
+    return tok?.word_index ?? tok?.wordIndex ?? tok?.config?.word_index ?? tok?.config?.wordIndex ?? null;
   }
 
-  function getTokenizerMaxLen(tokObj) {
-    const v =
-      tokObj?.max_length ??
-      tokObj?.maxLen ??
-      tokObj?.config?.max_length ??
-      tokObj?.config?.maxLen ??
-      tokObj?.max_length;
+  function getMaxLen(tok) {
+    const v = tok?.max_length ?? tok?.maxLen ?? tok?.config?.max_length ?? tok?.config?.maxLen;
     const n = Number(v);
-    return Number.isFinite(n) && n > 0 ? n : DEFAULT_MAX_LEN;
+    return Number.isFinite(n) && n > 0 ? n : 20;
   }
 
-  function getOOVIndex(tokObj, wordIndex) {
-    // Försök hitta OOV-index om det finns.
-    // Vanliga mönster: tokObj.oov_index / tokObj.oovIndex / tokObj.oov_token som pekar på en token i wordIndex (t.ex. "<OOV>")
-    const direct = tokObj?.oov_index ?? tokObj?.oovIndex ?? tokObj?.config?.oov_index ?? tokObj?.config?.oovIndex;
-    const n = Number(direct);
-    if (Number.isFinite(n) && n >= 0) return n;
+  function getOOVIndex(tok, wordIndex) {
+    const direct = tok?.oov_index ?? tok?.oovIndex ?? tok?.config?.oov_index ?? tok?.config?.oovIndex;
+    const dn = Number(direct);
+    if (Number.isFinite(dn) && dn >= 0) return dn;
 
-    const oovToken = tokObj?.oov_token ?? tokObj?.oovToken ?? tokObj?.config?.oov_token ?? tokObj?.config?.oovToken;
+    const oovToken = tok?.oov_token ?? tok?.oovToken ?? tok?.config?.oov_token ?? tok?.config?.oovToken;
     if (oovToken && wordIndex && wordIndex[oovToken] != null) return wordIndex[oovToken];
 
-    // Vanlig fallback: om "<OOV>" finns i word_index
     if (wordIndex && wordIndex['<OOV>'] != null) return wordIndex['<OOV>'];
-
-    return 1; // typisk fallback
+    return 1;
   }
 
   function textToSequence(text) {
-    if (!tokenizer) throw new Error('Tokenizer saknas.');
-    const wordIndex = getTokenizerWordIndex(tokenizer);
-    if (!wordIndex) {
-      throw new Error('Kunde inte hitta word_index i tokenizer.json. Kontrollera exportformatet.');
-    }
+    const wordIndex = getWordIndex(tokenizer);
+    if (!wordIndex) throw new Error('tokenizer.json saknar word_index.');
 
-    const maxLen = getTokenizerMaxLen(tokenizer);
+    const maxLen = getMaxLen(tokenizer);
     const oovIndex = getOOVIndex(tokenizer, wordIndex);
 
     const cleaned = normalizeText(text);
-    const words = cleaned.length ? cleaned.split(' ') : [];
+    const words = cleaned ? cleaned.split(' ') : [];
     const seq = words.map(w => (wordIndex[w] != null ? wordIndex[w] : oovIndex));
 
-    // pad/trunca: vänster-pad med 0 så längden blir maxLen (vanligt för sentimentmodeller)
+    // pre-pad till maxLen med 0
     const padded = new Array(maxLen).fill(0);
     const cut = seq.slice(-maxLen);
-    for (let i = 0; i < cut.length; i++) {
-      padded[maxLen - cut.length + i] = cut[i];
-    }
+    for (let i = 0; i < cut.length; i++) padded[maxLen - cut.length + i] = cut[i];
+
     return { sequence: padded, maxLen };
   }
 
-  // ---- Modell-laddning ----
+  // ======= LOAD MODEL =======
   async function loadModel() {
     clearMessages();
     setAnalyzeEnabled(false);
     els.debug.textContent = '';
 
     try {
-      // Force no-cache fetch check (hjälper när GitHub Pages cachar hårt)
+      // 1) kontrollera att filerna går att hämta (ger tydligare fel än tf.loadLayersModel)
       const r = await fetch(MODEL_URL, { cache: 'no-store' });
-      if (!r.ok) throw new Error(`Hittar inte model.json (${r.status}). Kontrollera sökvägen: ${MODEL_URL}`);
+      if (!r.ok) throw new Error(`Hittar inte model.json (${r.status}). Sökväg: ${MODEL_URL}`);
 
       const tr = await fetch(TOKENIZER_URL, { cache: 'no-store' });
-      if (!tr.ok) throw new Error(`Hittar inte tokenizer.json (${tr.status}). Kontrollera sökvägen: ${TOKENIZER_URL}`);
+      if (!tr.ok) throw new Error(`Hittar inte tokenizer.json (${tr.status}). Sökväg: ${TOKENIZER_URL}`);
 
-      // Backend
+      // 2) backend
       await tf.setBackend('webgl');
       await tf.ready();
 
-      // Ladda tokenizer
+      // 3) tokenizer
       tokenizer = await tr.json();
 
-      // Ladda modell
+      // 4) modell
       model = await tf.loadLayersModel(MODEL_URL);
 
-      // Snabb sanity: visa input shape om möjligt
       const inShape = model?.inputs?.[0]?.shape ? JSON.stringify(model.inputs[0].shape) : '(okänd)';
       const outShape = model?.outputs?.[0]?.shape ? JSON.stringify(model.outputs[0].shape) : '(okänd)';
 
-      showOk(`Modellen är laddad. TFJS ${tf.version.tfjs}. Input: ${inShape}, Output: ${outShape}`);
-      els.debug.textContent = `Debug: TFJS ${tf.version.tfjs} | modelUrl=${MODEL_URL} | tokenizerUrl=${TOKENIZER_URL}`;
+      showOk(`Modellen är laddad. TFJS ${tf.version.tfjs}. Input: ${inShape} Output: ${outShape}`);
+      els.debug.textContent = `Debug: TFJS ${tf.version.tfjs} | model=${MODEL_URL} | tok=${TOKENIZER_URL}`;
       setAnalyzeEnabled(true);
 
     } catch (err) {
@@ -316,49 +294,17 @@
   }
 
   async function reloadModel() {
-    // Städa lite minne
-    try {
-      if (model?.dispose) model.dispose();
-    } catch {}
+    try { model?.dispose?.(); } catch {}
     model = null;
     tokenizer = null;
     await loadModel();
   }
 
-  // ---- Prediktion ----
-  function pickLabelFromOutput(arr) {
-    // Vi antar 3 klasser: [negativ, neutral, positiv] ELLER [negativ, positiv] osv.
-    // Om det är 3: ta argmax och mappa till etiketter.
-    // Om det är 1: behandla som "positiv sannolikhet" (sigmoid) och gör 3-läge med trösklar.
-    if (!Array.isArray(arr)) throw new Error('Ogiltigt modell-output.');
-
-    if (arr.length === 3) {
-      let bestI = 0;
-      for (let i = 1; i < 3; i++) if (arr[i] > arr[bestI]) bestI = i;
-
-      // Vanlig ordning i sentiment: [neg, neu, pos] – men kan skilja. Justera vid behov.
-      const labels = ['Negativ', 'Neutral', 'Positiv'];
-      return { label: labels[bestI], scores: arr };
-    }
-
-    if (arr.length === 2) {
-      // [neg, pos] eller [pos, neg] – vi antar [neg, pos]
-      const label = arr[1] >= arr[0] ? 'Positiv' : 'Negativ';
-      return { label, scores: arr };
-    }
-
-    if (arr.length === 1) {
-      const p = arr[0];
-      // 3-läge via trösklar
-      if (p >= 0.6) return { label: 'Positiv', scores: [p] };
-      if (p <= 0.4) return { label: 'Negativ', scores: [p] };
-      return { label: 'Neutral', scores: [p] };
-    }
-
-    // fallback: argmax
-    let bestI = 0;
-    for (let i = 1; i < arr.length; i++) if (arr[i] > arr[bestI]) bestI = i;
-    return { label: `Klass ${bestI}`, scores: arr };
+  // ======= PREDICT =======
+  function argmax(arr) {
+    let best = 0;
+    for (let i = 1; i < arr.length; i++) if (arr[i] > arr[best]) best = i;
+    return best;
   }
 
   async function analyze() {
@@ -367,14 +313,8 @@
     els.result.textContent = '';
 
     const text = els.text.value.trim();
-    if (!text) {
-      showError('Skriv ett omdöme först.');
-      return;
-    }
-    if (!model || !tokenizer) {
-      showError('Modell/tokenizer är inte laddad. Klicka “Ladda om modellen”.');
-      return;
-    }
+    if (!text) return showError('Skriv ett omdöme först.');
+    if (!model || !tokenizer) return showError('Modell/tokenizer är inte laddad. Klicka “Ladda om modellen”.');
 
     try {
       const { sequence, maxLen } = textToSequence(text);
@@ -382,22 +322,20 @@
       // Viktigt: Embedding kräver int32
       const inputTensor = tf.tensor2d([sequence], [1, maxLen], 'int32');
 
-      // prediktera
       const out = model.predict(inputTensor);
       const data = await out.data();
 
-      // städa tensors
       inputTensor.dispose();
-      if (out?.dispose) out.dispose();
+      out?.dispose?.();
 
-      const arr = Array.from(data);
-      const { label, scores } = pickLabelFromOutput(arr);
+      const scores = Array.from(data);
+      const idx = argmax(scores);
+      const label = LABELS[idx] ?? `Klass ${idx}`;
 
       els.result.style.display = 'block';
       els.result.innerHTML =
-        `<strong>Resultat: ${label}</strong><div style="margin-top:8px;color:#374151;">
-          Scores: ${scores.map(x => (typeof x === 'number' ? x.toFixed(4) : x)).join(', ')}
-        </div>`;
+        `<strong>Resultat: ${label}</strong>` +
+        `<div style="margin-top:8px;color:#374151;">Scores: ${scores.map(x => Number(x).toFixed(4)).join(', ')}</div>`;
 
     } catch (err) {
       console.error(err);
@@ -410,9 +348,9 @@
     els.text.focus();
   }
 
-  // Ladda modell direkt vid start
+  // Start
   loadModel();
 </script>
 </body>
 </html>
-```
+
