@@ -29,7 +29,7 @@
       padding:24px;
     }
     .card{
-      width:min(760px, 100%);
+      width:min(860px, 100%);
       background:var(--card);
       border-radius:18px;
       box-shadow: 0 18px 50px rgba(0,0,0,.25);
@@ -59,7 +59,8 @@
     }
     .alert.danger{ background: var(--danger-bg); color: var(--danger); }
     .alert.ok{ background: var(--ok-bg); color: var(--ok); }
-    label{ font-weight:700; display:block; margin:12px 0 8px; }
+
+    label{ font-weight:800; display:block; margin:12px 0 8px; }
     textarea{
       width:100%;
       min-height:120px;
@@ -71,6 +72,7 @@
       outline:none;
     }
     textarea:focus{ border-color:#9ca3af; box-shadow: 0 0 0 4px rgba(156,163,175,.25); }
+
     .row{
       display:flex;
       gap:12px;
@@ -82,13 +84,14 @@
       border:0;
       border-radius:12px;
       padding:12px 14px;
-      font-weight:800;
+      font-weight:900;
       cursor:pointer;
       color:#fff;
       background:var(--btn);
     }
     button.secondary{ background:var(--btn2); }
     button:disabled{ opacity:.55; cursor:not-allowed; }
+
     .result{
       margin-top:14px;
       padding:12px 14px;
@@ -97,7 +100,7 @@
       background:#f9fafb;
       display:none;
     }
-    .result strong{ font-size:16px; }
+
     .pill-row{
       margin-top:16px;
       padding-top:16px;
@@ -110,8 +113,32 @@
       border-radius:999px;
       padding:8px 12px;
       cursor:pointer;
-      font-weight:700;
+      font-weight:800;
     }
+
+    details{
+      margin-top:14px;
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:#f9fafb;
+      padding:10px 12px;
+    }
+    summary{
+      cursor:pointer;
+      font-weight:900;
+    }
+    pre{
+      margin:10px 0 0 0;
+      font-size:12px;
+      line-height:1.35;
+      background:#111827;
+      color:#e5e7eb;
+      padding:12px;
+      border-radius:12px;
+      overflow:auto;
+      max-height:240px;
+    }
+
     .tiny{
       margin-top:10px;
       color:var(--muted);
@@ -125,7 +152,7 @@
     }
   </style>
 
-  <!-- VIKTIGT: TFJS-version som matchar nyare converter-format -->
+  <!-- VIKTIGT: ny TFJS-version -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
 </head>
 
@@ -149,7 +176,7 @@
     <div id="result" class="result"></div>
 
     <div class="pill-row">
-      <div style="font-weight:800; margin-bottom:10px;">💡 Prova dessa exempel:</div>
+      <div style="font-weight:900; margin-bottom:10px;">💡 Prova dessa exempel:</div>
       <div class="row">
         <button class="pill" onclick="setExample('Det här var en fantastisk film, jag älskade den!')">Positiv</button>
         <button class="pill" onclick="setExample('Riktigt dålig film, slöseri med tid.')">Negativ</button>
@@ -157,13 +184,19 @@
       </div>
     </div>
 
-    <div class="tiny" id="debug"></div>
+    <details open>
+      <summary>🧪 Debug (klicka för att fälla in/ut)</summary>
+      <div class="tiny">Här ser du exakt vad som laddas (och om model.json har batch_shape eller batch_input_shape).</div>
+      <pre id="debug"></pre>
+    </details>
   </div>
 
 <script>
-  // --- Filvägar (matchar repo-strukturen /tfjs_model/* ) ---
-  const MODEL_URL = './tfjs_model/model.json';
-  const TOKENIZER_URL = './tfjs_model/tokenizer.json';
+  // ÄNDRA BUILD varje gång du uppdaterar filer i GitHub (tvingar bort cache)
+  const BUILD = "2026-01-18-05";
+
+  const MODEL_URL = `./tfjs_model/model.json?v=${BUILD}`;
+  const TOKENIZER_URL = `./tfjs_model/tokenizer.json?v=${BUILD}`;
 
   let model = null;
   let tokenizer = null;
@@ -174,8 +207,12 @@
     text: document.getElementById('text'),
     btn: document.getElementById('btnAnalyze'),
     result: document.getElementById('result'),
-    debug: document.getElementById('debug')
+    debug: document.getElementById('debug'),
   };
+
+  function log(line){
+    els.debug.textContent += line + "\n";
+  }
 
   function showError(msg) {
     els.alert.style.display = 'block';
@@ -197,7 +234,6 @@
     els.btn.disabled = !enabled;
   }
 
-  // --- Tokenisering helpers ---
   function normalizeText(s) {
     return (s || '')
       .toLowerCase()
@@ -209,13 +245,11 @@
   function getWordIndex(tokObj) {
     return tokObj?.word_index || tokObj?.wordIndex || tokObj?.config?.word_index || tokObj?.config?.wordIndex || null;
   }
-
   function getMaxLen(tokObj) {
     const v = tokObj?.max_length ?? tokObj?.maxLen ?? tokObj?.config?.max_length ?? tokObj?.config?.maxLen;
     const n = Number(v);
     return Number.isFinite(n) && n > 0 ? n : 20;
   }
-
   function getOOVIndex(tokObj, wordIndex) {
     const direct = tokObj?.oov_index ?? tokObj?.oovIndex ?? tokObj?.config?.oov_index ?? tokObj?.config?.oovIndex;
     const n = Number(direct);
@@ -223,9 +257,7 @@
 
     const oovToken = tokObj?.oov_token ?? tokObj?.oovToken ?? tokObj?.config?.oov_token ?? tokObj?.config?.oovToken;
     if (oovToken && wordIndex && wordIndex[oovToken] != null) return wordIndex[oovToken];
-
     if (wordIndex && wordIndex['<OOV>'] != null) return wordIndex['<OOV>'];
-
     return 1;
   }
 
@@ -241,134 +273,55 @@
     const words = cleaned ? cleaned.split(' ') : [];
     const seq = words.map(w => (wordIndex[w] != null ? wordIndex[w] : oovIndex));
 
-    // Pre-padding med 0, trunkera från vänster
     const padded = new Array(maxLen).fill(0);
     const cut = seq.slice(-maxLen);
-    for (let i = 0; i < cut.length; i++) {
-      padded[maxLen - cut.length + i] = cut[i];
-    }
+    for (let i = 0; i < cut.length; i++) padded[maxLen - cut.length + i] = cut[i];
     return { padded, maxLen };
   }
 
-  // --- Ladda modell + tokenizer ---
+  async function fetchText(url){
+    const r = await fetch(url, { cache: "no-store" });
+    return { status: r.status, ok: r.ok, text: await r.text() };
+  }
+
+  function inspectModelJsonText(txt){
+    const hasBatchShape = txt.includes('"batch_shape"') || txt.includes("batch_shape");
+    const hasBatchInputShape = txt.includes('"batch_input_shape"') || txt.includes("batch_input_shape");
+    const hasInputShape = txt.includes('"input_shape"') || txt.includes("input_shape");
+    return { hasBatchShape, hasBatchInputShape, hasInputShape };
+  }
+
   async function loadAll() {
     clearMessages();
     setAnalyzeEnabled(false);
     els.result.style.display = 'none';
     els.debug.textContent = '';
 
+    log("TFJS version: " + (tf?.version?.tfjs ?? "okänd"));
+    log("BUILD: " + BUILD);
+    log("MODEL_URL: " + MODEL_URL);
+    log("TOKENIZER_URL: " + TOKENIZER_URL);
+    log("----");
+
     try {
-      // Cache-bypass (GitHub Pages kan cachea hårt)
-      const r = await fetch(MODEL_URL, { cache: 'no-store' });
-      if (!r.ok) throw new Error(`Hittar inte model.json (${r.status}). Kontrollera sökvägen: ${MODEL_URL}`);
+      const mj = await fetchText(MODEL_URL);
+      log(`model.json status: ${mj.status}`);
+      if (!mj.ok) throw new Error(`Hittar inte model.json (${mj.status}). Kontrollera sökvägen.`);
 
-      const tr = await fetch(TOKENIZER_URL, { cache: 'no-store' });
-      if (!tr.ok) throw new Error(`Hittar inte tokenizer.json (${tr.status}). Kontrollera sökvägen: ${TOKENIZER_URL}`);
+      const flags = inspectModelJsonText(mj.text);
+      log("model.json innehåller:");
+      log(" - batch_shape: " + flags.hasBatchShape);
+      log(" - batch_input_shape: " + flags.hasBatchInputShape);
+      log(" - input_shape: " + flags.hasInputShape);
+      log("----");
 
-      // Backend
+      const tj = await fetch(TOKENIZER_URL, { cache: "no-store" });
+      log(`tokenizer.json status: ${tj.status}`);
+      if (!tj.ok) throw new Error(`Hittar inte tokenizer.json (${tj.status}). Kontrollera sökvägen.`);
+      tokenizer = await tj.json();
+
       await tf.setBackend('webgl');
       await tf.ready();
+      log("Backend: " + tf.getBackend());
 
-      tokenizer = await tr.json();
-
-      // Ladda modellen (om detta kraschar är model.json fel eller TFJS-version mismatch)
-      model = await tf.loadLayersModel(MODEL_URL);
-
-      const inShape = model?.inputs?.[0]?.shape ? JSON.stringify(model.inputs[0].shape) : '(okänd)';
-      const outShape = model?.outputs?.[0]?.shape ? JSON.stringify(model.outputs[0].shape) : '(okänd)';
-
-      showOk(`Modellen är laddad. TFJS ${tf.version.tfjs}. Input: ${inShape}, Output: ${outShape}`);
-      els.debug.textContent = `Debug: TFJS ${tf.version.tfjs} | modelUrl=${MODEL_URL} | tokenizerUrl=${TOKENIZER_URL}`;
-      setAnalyzeEnabled(true);
-    } catch (err) {
-      console.error(err);
-      showError(err?.message || String(err));
-      model = null;
-      tokenizer = null;
-      setAnalyzeEnabled(false);
-    }
-  }
-
-  async function reloadModel() {
-    try { if (model?.dispose) model.dispose(); } catch {}
-    model = null;
-    tokenizer = null;
-    await loadAll();
-  }
-
-  // --- Tolka output ---
-  function labelFromScores(arr) {
-    // Vanlig softmax-3: [neg, neu, pos]
-    if (arr.length === 3) {
-      let best = 0;
-      for (let i = 1; i < 3; i++) if (arr[i] > arr[best]) best = i;
-      return { label: ['Negativ', 'Neutral', 'Positiv'][best], scores: arr };
-    }
-
-    // Två klasser: antag [neg, pos]
-    if (arr.length === 2) {
-      return { label: (arr[1] >= arr[0]) ? 'Positiv' : 'Negativ', scores: arr };
-    }
-
-    // En output (sigmoid): thresholda
-    if (arr.length === 1) {
-      const p = arr[0];
-      if (p >= 0.6) return { label: 'Positiv', scores: [p] };
-      if (p <= 0.4) return { label: 'Negativ', scores: [p] };
-      return { label: 'Neutral', scores: [p] };
-    }
-
-    // fallback argmax
-    let best = 0;
-    for (let i = 1; i < arr.length; i++) if (arr[i] > arr[best]) best = i;
-    return { label: `Klass ${best}`, scores: arr };
-  }
-
-  // --- Prediktion ---
-  async function analyze() {
-    clearMessages();
-    els.result.style.display = 'none';
-
-    const text = els.text.value.trim();
-    if (!text) return showError('Skriv ett omdöme först.');
-    if (!model || !tokenizer) return showError('Modell/tokenizer är inte laddad. Klicka “Ladda om modellen”.');
-
-    try {
-      const { padded, maxLen } = textToPaddedSequence(text);
-
-      // VIKTIGT: int32 input till Embedding-modell
-      const inputTensor = tf.tensor2d([padded], [1, maxLen], 'int32');
-
-      const out = model.predict(inputTensor);
-      const data = await out.data();
-
-      // städa minne
-      inputTensor.dispose();
-      if (out?.dispose) out.dispose();
-
-      const arr = Array.from(data);
-      const { label, scores } = labelFromScores(arr);
-
-      els.result.style.display = 'block';
-      els.result.innerHTML =
-        `<strong>Resultat: ${label}</strong>
-         <div style="margin-top:8px;color:#374151;">
-           Scores: ${scores.map(x => (typeof x === 'number' ? x.toFixed(4) : x)).join(', ')}
-         </div>`;
-    } catch (err) {
-      console.error(err);
-      showError(err?.message || String(err));
-    }
-  }
-
-  function setExample(s) {
-    els.text.value = s;
-    els.text.focus();
-  }
-
-  // Start
-  loadAll();
-</script>
-</body>
-</html>
-
+      // Ladda modellen från URL (inte från text)
