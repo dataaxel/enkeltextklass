@@ -1,493 +1,418 @@
 <!DOCTYPE html>
 <html lang="sv">
+<!-- Open AI -->
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Filmomdöme-klassificerare</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.11.0"></script>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 20px;
-        }
-        
-        .container {
-            background: white;
-            border-radius: 20px;
-            padding: 40px;
-            max-width: 600px;
-            width: 100%;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-        }
-        
-        h1 {
-            color: #333;
-            margin-bottom: 10px;
-            text-align: center;
-        }
-        
-        .subtitle {
-            color: #666;
-            text-align: center;
-            margin-bottom: 30px;
-            font-size: 14px;
-        }
-        
-        .status {
-            text-align: center;
-            padding: 10px;
-            margin-bottom: 20px;
-            border-radius: 8px;
-            font-size: 14px;
-            display: none;
-        }
-        
-        .status.loading {
-            display: block;
-            background: #e3f2fd;
-            color: #1976d2;
-        }
-        
-        .status.error {
-            display: block;
-            background: #ffebee;
-            color: #c62828;
-        }
-        
-        .status.success {
-            display: block;
-            background: #e8f5e9;
-            color: #2e7d32;
-        }
-        
-        .input-group {
-            margin-bottom: 20px;
-        }
-        
-        label {
-            display: block;
-            margin-bottom: 8px;
-            color: #333;
-            font-weight: 600;
-        }
-        
-        textarea {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            font-size: 16px;
-            font-family: inherit;
-            resize: vertical;
-            transition: border-color 0.3s;
-        }
-        
-        textarea:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-        
-        button {
-            width: 100%;
-            padding: 15px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-        
-        button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
-        }
-        
-        button:active {
-            transform: translateY(0);
-        }
-        
-        button:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-            transform: none;
-        }
-        
-        .result {
-            margin-top: 30px;
-            padding: 20px;
-            border-radius: 10px;
-            display: none;
-            animation: fadeIn 0.5s;
-        }
-        
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        
-        .result.positive {
-            background: #d4edda;
-            border: 2px solid #28a745;
-        }
-        
-        .result.negative {
-            background: #f8d7da;
-            border: 2px solid #dc3545;
-        }
-        
-        .result.neutral {
-            background: #fff3cd;
-            border: 2px solid #ffc107;
-        }
-        
-        .result-title {
-            font-size: 24px;
-            font-weight: bold;
-            margin-bottom: 10px;
-        }
-        
-        .result.positive .result-title {
-            color: #28a745;
-        }
-        
-        .result.negative .result-title {
-            color: #dc3545;
-        }
-        
-        .result.neutral .result-title {
-            color: #e67e00;
-        }
-        
-        .confidence {
-            font-size: 14px;
-            color: #666;
-            margin-bottom: 15px;
-        }
-        
-        .probabilities {
-            display: flex;
-            gap: 10px;
-            margin-top: 15px;
-        }
-        
-        .prob-bar {
-            flex: 1;
-            text-align: center;
-        }
-        
-        .prob-label {
-            font-size: 12px;
-            margin-bottom: 5px;
-            font-weight: 600;
-        }
-        
-        .bar-container {
-            background: #f0f0f0;
-            border-radius: 5px;
-            height: 30px;
-            overflow: hidden;
-        }
-        
-        .bar-fill {
-            height: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-size: 12px;
-            font-weight: bold;
-            transition: width 0.5s ease;
-        }
-        
-        .bar-fill.neg { background: #dc3545; }
-        .bar-fill.neu { background: #ffc107; }
-        .bar-fill.pos { background: #28a745; }
-        
-        .examples {
-            margin-top: 30px;
-            padding: 20px;
-            background: #f8f9fa;
-            border-radius: 10px;
-        }
-        
-        .examples h3 {
-            color: #333;
-            margin-bottom: 15px;
-            font-size: 16px;
-        }
-        
-        .example-btn {
-            display: inline-block;
-            margin: 5px;
-            padding: 8px 15px;
-            background: white;
-            border: 2px solid #e0e0e0;
-            border-radius: 20px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: all 0.2s;
-        }
-        
-        .example-btn:hover {
-            border-color: #667eea;
-            color: #667eea;
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AI Filmomdöme-klassificerare</title>
+  <style>
+    :root{
+      --bg:#6b6fd6;
+      --card:#ffffff;
+      --muted:#6b7280;
+      --danger:#b91c1c;
+      --danger-bg:#fee2e2;
+      --ok:#065f46;
+      --ok-bg:#d1fae5;
+      --border:#e5e7eb;
+      --btn:#111827;
+      --btn2:#374151;
+    }
+    body{
+      margin:0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Noto Sans";
+      background: var(--bg);
+      min-height:100vh;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:24px;
+    }
+    .card{
+      width:min(720px, 100%);
+      background:var(--card);
+      border-radius:18px;
+      box-shadow: 0 18px 50px rgba(0,0,0,.25);
+      padding:28px;
+    }
+    h1{
+      margin:0 0 6px 0;
+      font-size:28px;
+      display:flex;
+      gap:10px;
+      align-items:center;
+    }
+    .sub{
+      margin:0 0 18px 0;
+      color:var(--muted);
+      font-size:14px;
+    }
+    .alert{
+      display:none;
+      border-radius:12px;
+      padding:12px 14px;
+      margin: 10px 0 16px 0;
+      border:1px solid rgba(0,0,0,.05);
+      font-size:14px;
+      line-height:1.35;
+    }
+    .alert.danger{ background: var(--danger-bg); color: var(--danger); }
+    .alert.ok{ background: var(--ok-bg); color: var(--ok); }
+    label{ font-weight:600; display:block; margin:12px 0 8px; }
+    textarea{
+      width:100%;
+      min-height:120px;
+      resize:vertical;
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:12px 12px;
+      font-size:15px;
+      outline:none;
+    }
+    textarea:focus{ border-color:#9ca3af; box-shadow: 0 0 0 4px rgba(156,163,175,.25); }
+    .row{
+      display:flex;
+      gap:12px;
+      align-items:center;
+      flex-wrap:wrap;
+      margin-top:12px;
+    }
+    button{
+      border:0;
+      border-radius:12px;
+      padding:12px 14px;
+      font-weight:700;
+      cursor:pointer;
+      color:#fff;
+      background:var(--btn);
+    }
+    button.secondary{ background:var(--btn2); }
+    button:disabled{
+      opacity:.55;
+      cursor:not-allowed;
+    }
+    .result{
+      margin-top:14px;
+      padding:12px 14px;
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:#f9fafb;
+      display:none;
+    }
+    .result strong{ font-size:16px; }
+    .pill-row{
+      margin-top:16px;
+      padding-top:16px;
+      border-top:1px solid var(--border);
+    }
+    .pill{
+      border:1px solid var(--border);
+      background:#fff;
+      color:#111827;
+      border-radius:999px;
+      padding:8px 12px;
+      cursor:pointer;
+      font-weight:600;
+    }
+    .tiny{
+      margin-top:10px;
+      color:var(--muted);
+      font-size:12px;
+    }
+    code.small{
+      font-size:12px;
+      background:#f3f4f6;
+      padding:2px 6px;
+      border-radius:8px;
+    }
+  </style>
+
+  <!-- Viktigt: matcha nyare TFJS så den kan läsa din model.json -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
 </head>
+
 <body>
-    <div class="container">
-        <h1>🎬 AI Filmomdöme-klassificerare</h1>
-        <p class="subtitle">Skriv ett omdöme och låt AI:n avgöra om det är positivt, negativt eller neutralt</p>
-        
-        <div class="status" id="status"></div>
-        
-        <div class="input-group">
-            <label for="reviewText">Ditt filmomdöme:</label>
-            <textarea 
-                id="reviewText" 
-                rows="4" 
-                placeholder="Skriv ditt omdöme här... Till exempel: 'Fantastisk film med otroliga effekter!'"
-            ></textarea>
-        </div>
-        
-        <button id="analyzeBtn" onclick="analyzeSentiment()">Analysera känsla</button>
-        
-        <div class="result" id="result">
-            <div class="result-title" id="resultTitle"></div>
-            <div class="confidence" id="confidence"></div>
-            <div class="probabilities">
-                <div class="prob-bar">
-                    <div class="prob-label">Negativ</div>
-                    <div class="bar-container">
-                        <div class="bar-fill neg" id="negBar">0%</div>
-                    </div>
-                </div>
-                <div class="prob-bar">
-                    <div class="prob-label">Neutral</div>
-                    <div class="bar-container">
-                        <div class="bar-fill neu" id="neuBar">0%</div>
-                    </div>
-                </div>
-                <div class="prob-bar">
-                    <div class="prob-label">Positiv</div>
-                    <div class="bar-container">
-                        <div class="bar-fill pos" id="posBar">0%</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="examples">
-            <h3>💡 Prova dessa exempel:</h3>
-            <span class="example-btn" onclick="setExample('Fantastisk film! Bästa jag sett på länge.')">Positiv</span>
-            <span class="example-btn" onclick="setExample('Helt värdelös, slöseri med tid.')">Negativ</span>
-            <span class="example-btn" onclick="setExample('Ganska okej film, varken bra eller dålig.')">Neutral</span>
-        </div>
+  <div class="card">
+    <h1>🎬 AI Filmomdöme-klassificerare</h1>
+    <p class="sub">Skriv ett omdöme och låt AI:n avgöra om det är positivt, negativt eller neutralt.</p>
+
+    <div id="alert" class="alert danger"></div>
+    <div id="ok" class="alert ok"></div>
+
+    <label for="text">Ditt filmomdöme:</label>
+    <textarea id="text" placeholder="Skriv ditt omdöme här… Till exempel: 'Fantastisk film med otroliga effekter!'"></textarea>
+
+    <div class="row">
+      <button id="btnAnalyze" onclick="analyze()" disabled>Analysera känsla</button>
+      <button class="secondary" onclick="reloadModel()">Ladda om modellen</button>
+      <span class="tiny">Modell: <code class="small">./tfjs_model/model.json</code></span>
     </div>
 
-    <script>
-        let model;
-        let tokenizer;
-        
-        // Visa status
-        function showStatus(message, type) {
-            const status = document.getElementById('status');
-            status.textContent = message;
-            status.className = 'status ' + type;
-        }
-        
-        // Ladda modell och tokenizer när sidan laddas
-        async function loadModel() {
-            const analyzeBtn = document.getElementById('analyzeBtn');
-            
-            showStatus('Laddar modell...', 'loading');
-            analyzeBtn.disabled = true;
-            
-            try {
-                console.log('Försöker ladda modell...');
-                
-                // Ladda TensorFlow.js modellen
-                model = await tf.loadLayersModel('./tfjs_model/model.json');
-                console.log('Modell laddad!');
-                console.log('Model input shape:', model.inputs[0].shape);
-                
-                // Ladda tokenizer-konfiguration
-                const response = await fetch('./tfjs_model/tokenizer.json');
-                if (!response.ok) {
-                    throw new Error('Kunde inte ladda tokenizer.json');
-                }
-                tokenizer = await response.json();
-                console.log('Tokenizer laddad!');
-                console.log('Max length:', tokenizer.max_length);
-                
-                showStatus('✓ Modell laddad och redo!', 'success');
-                analyzeBtn.disabled = false;
-                
-                setTimeout(() => {
-                    document.getElementById('status').style.display = 'none';
-                }, 3000);
-                
-            } catch (error) {
-                console.error('Fel vid laddning av modell:', error);
-                showStatus('❌ Fel: ' + error.message + ' - Kontrollera att tfjs_model-mappen finns.', 'error');
-            }
-        }
-        
-        // Tokenisera text (konvertera ord till siffror)
-        function tokenizeText(text) {
-            const words = text.toLowerCase().split(/\s+/);
-            const sequence = [];
-            
-            for (let word of words) {
-                if (tokenizer.word_index[word]) {
-                    sequence.push(tokenizer.word_index[word]);
-                } else {
-                    sequence.push(1); // OOV token
-                }
-            }
-            
-            // Padding
-            while (sequence.length < tokenizer.max_length) {
-                sequence.push(0);
-            }
-            
-            return sequence.slice(0, tokenizer.max_length);
-        }
-        
-        // Analysera känslan i texten
-        async function analyzeSentiment() {
-            const text = document.getElementById('reviewText').value.trim();
-            
-            if (!text) {
-                alert('Skriv ett omdöme först!');
-                return;
-            }
-            
-            if (!model) {
-                alert('Modellen laddas fortfarande, vänta lite...');
-                return;
-            }
-            
-            try {
-                // Tokenisera input
-                const sequence = tokenizeText(text);
-                console.log('Sequence:', sequence);
-                
-                // Prova olika sätt att skapa input tensor
-                let prediction;
-                
-                // Metod 1: Använd tf.tidy för bättre minneshantering
-                prediction = tf.tidy(() => {
-                    // Skapa input som 2D tensor
-                    const inputTensor = tf.tensor2d(sequence, [1, tokenizer.max_length]);
-                    console.log('Input tensor shape:', inputTensor.shape);
-                    
-                    // Använd model.predict() med explicit config
-                    const result = model.predict(inputTensor, {
-                        batchSize: 1
-                    });
-                    
-                    return result;
-                });
-                
-                const predictionData = await prediction.data();
-                console.log('Prediction:', predictionData);
-                
-                // Hitta den högsta sannolikheten
-                const sentiments = ['negativ', 'neutral', 'positiv'];
-                const predArray = Array.from(predictionData);
-                const maxIndex = predArray.indexOf(Math.max(...predArray));
-                const sentiment = sentiments[maxIndex];
-                const confidence = (predArray[maxIndex] * 100).toFixed(1);
-                
-                // Visa resultat
-                showResult(sentiment, confidence, predArray);
-                
-                // Rensa
-                prediction.dispose();
-                
-            } catch (error) {
-                console.error('Fel vid prediction:', error);
-                console.error('Error stack:', error.stack);
-                alert('Fel vid analys: ' + error.message + '\n\nKontrollera console (F12) för mer info.');
-            }
-        }
-        
-        // Visa resultat
-        function showResult(sentiment, confidence, probabilities) {
-            const result = document.getElementById('result');
-            const resultTitle = document.getElementById('resultTitle');
-            const confidenceText = document.getElementById('confidence');
-            
-            // Sätt text
-            const emojis = {
-                'positiv': '😊',
-                'negativ': '😞',
-                'neutral': '😐'
-            };
-            
-            resultTitle.textContent = `${emojis[sentiment]} ${sentiment.toUpperCase()}`;
-            confidenceText.textContent = `Säkerhet: ${confidence}%`;
-            
-            // Sätt färg
-            result.className = 'result ' + (sentiment === 'positiv' ? 'positive' : sentiment === 'negativ' ? 'negative' : 'neutral');
-            
-            // Uppdatera staplar
-            updateBars(probabilities);
-            
-            // Visa resultat
-            result.style.display = 'block';
-        }
-        
-        // Uppdatera sannolikhetsstaplar
-        function updateBars(probabilities) {
-            const negBar = document.getElementById('negBar');
-            const neuBar = document.getElementById('neuBar');
-            const posBar = document.getElementById('posBar');
-            
-            const negPercent = (probabilities[0] * 100).toFixed(0);
-            const neuPercent = (probabilities[1] * 100).toFixed(0);
-            const posPercent = (probabilities[2] * 100).toFixed(0);
-            
-            negBar.style.width = negPercent + '%';
-            negBar.textContent = negPercent + '%';
-            
-            neuBar.style.width = neuPercent + '%';
-            neuBar.textContent = neuPercent + '%';
-            
-            posBar.style.width = posPercent + '%';
-            posBar.textContent = posPercent + '%';
-        }
-        
-        // Sätt exempel-text
-        function setExample(text) {
-            document.getElementById('reviewText').value = text;
-        }
-        
-        // Ladda modell när sidan är klar
-        window.addEventListener('load', loadModel);
-        
-        // Lägg till Enter-tangent för analys (Ctrl+Enter)
-        document.getElementById('reviewText').addEventListener('keydown', function(e) {
-            if (e.ctrlKey && e.key === 'Enter') {
-                analyzeSentiment();
-            }
-        });
-    </script>
+    <div id="result" class="result"></div>
+
+    <div class="pill-row">
+      <div style="font-weight:700; margin-bottom:10px;">💡 Prova dessa exempel:</div>
+      <div class="row">
+        <button class="pill" onclick="setExample('Det här var en fantastisk film, jag älskade den!')">Positiv</button>
+        <button class="pill" onclick="setExample('Riktigt dålig film, slöseri med tid.')">Negativ</button>
+        <button class="pill" onclick="setExample('Filmen var okej, varken bra eller dålig.')">Neutral</button>
+      </div>
+    </div>
+
+    <div class="tiny" id="debug"></div>
+  </div>
+
+<script>
+  // ---- Konfiguration ----
+  const MODEL_URL = './tfjs_model/model.json';
+  const TOKENIZER_URL = './tfjs_model/tokenizer.json';
+
+  let model = null;
+  let tokenizer = null;
+
+  // Förväntad struktur (men vi försöker vara robusta):
+  // tokenizer.word_index : { "bra": 123, ... }
+  // tokenizer.max_length : 20
+  // tokenizer.oov_token / tokenizer.oov_index (valfritt)
+  const DEFAULT_MAX_LEN = 20;
+
+  const els = {
+    alert: document.getElementById('alert'),
+    ok: document.getElementById('ok'),
+    text: document.getElementById('text'),
+    btn: document.getElementById('btnAnalyze'),
+    result: document.getElementById('result'),
+    debug: document.getElementById('debug')
+  };
+
+  function showError(msg) {
+    els.alert.style.display = 'block';
+    els.ok.style.display = 'none';
+    els.alert.textContent = '✖ Fel: ' + msg;
+  }
+  function showOk(msg) {
+    els.ok.style.display = 'block';
+    els.alert.style.display = 'none';
+    els.ok.textContent = '✔ ' + msg;
+  }
+  function clearMessages() {
+    els.alert.style.display = 'none';
+    els.ok.style.display = 'none';
+    els.alert.textContent = '';
+    els.ok.textContent = '';
+  }
+  function setAnalyzeEnabled(enabled) {
+    els.btn.disabled = !enabled;
+  }
+
+  // ---- Tokenisering / preprocessing ----
+  function normalizeText(s) {
+    return (s || '')
+      .toLowerCase()
+      // behåll a-ö + mellanslag, ersätt annat med mellanslag
+      .replace(/[^a-zåäö0-9\s]+/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function getTokenizerWordIndex(tokObj) {
+    // Vanliga varianter
+    if (tokObj?.word_index) return tokObj.word_index;
+    if (tokObj?.wordIndex) return tokObj.wordIndex;
+    if (tokObj?.config?.word_index) return tokObj.config.word_index;
+    if (tokObj?.config?.wordIndex) return tokObj.config.wordIndex;
+    return null;
+  }
+
+  function getTokenizerMaxLen(tokObj) {
+    const v =
+      tokObj?.max_length ??
+      tokObj?.maxLen ??
+      tokObj?.config?.max_length ??
+      tokObj?.config?.maxLen ??
+      tokObj?.max_length;
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? n : DEFAULT_MAX_LEN;
+  }
+
+  function getOOVIndex(tokObj, wordIndex) {
+    // Försök hitta OOV-index om det finns.
+    // Vanliga mönster: tokObj.oov_index / tokObj.oovIndex / tokObj.oov_token som pekar på en token i wordIndex (t.ex. "<OOV>")
+    const direct = tokObj?.oov_index ?? tokObj?.oovIndex ?? tokObj?.config?.oov_index ?? tokObj?.config?.oovIndex;
+    const n = Number(direct);
+    if (Number.isFinite(n) && n >= 0) return n;
+
+    const oovToken = tokObj?.oov_token ?? tokObj?.oovToken ?? tokObj?.config?.oov_token ?? tokObj?.config?.oovToken;
+    if (oovToken && wordIndex && wordIndex[oovToken] != null) return wordIndex[oovToken];
+
+    // Vanlig fallback: om "<OOV>" finns i word_index
+    if (wordIndex && wordIndex['<OOV>'] != null) return wordIndex['<OOV>'];
+
+    return 1; // typisk fallback
+  }
+
+  function textToSequence(text) {
+    if (!tokenizer) throw new Error('Tokenizer saknas.');
+    const wordIndex = getTokenizerWordIndex(tokenizer);
+    if (!wordIndex) {
+      throw new Error('Kunde inte hitta word_index i tokenizer.json. Kontrollera exportformatet.');
+    }
+
+    const maxLen = getTokenizerMaxLen(tokenizer);
+    const oovIndex = getOOVIndex(tokenizer, wordIndex);
+
+    const cleaned = normalizeText(text);
+    const words = cleaned.length ? cleaned.split(' ') : [];
+    const seq = words.map(w => (wordIndex[w] != null ? wordIndex[w] : oovIndex));
+
+    // pad/trunca: vänster-pad med 0 så längden blir maxLen (vanligt för sentimentmodeller)
+    const padded = new Array(maxLen).fill(0);
+    const cut = seq.slice(-maxLen);
+    for (let i = 0; i < cut.length; i++) {
+      padded[maxLen - cut.length + i] = cut[i];
+    }
+    return { sequence: padded, maxLen };
+  }
+
+  // ---- Modell-laddning ----
+  async function loadModel() {
+    clearMessages();
+    setAnalyzeEnabled(false);
+    els.debug.textContent = '';
+
+    try {
+      // Force no-cache fetch check (hjälper när GitHub Pages cachar hårt)
+      const r = await fetch(MODEL_URL, { cache: 'no-store' });
+      if (!r.ok) throw new Error(`Hittar inte model.json (${r.status}). Kontrollera sökvägen: ${MODEL_URL}`);
+
+      const tr = await fetch(TOKENIZER_URL, { cache: 'no-store' });
+      if (!tr.ok) throw new Error(`Hittar inte tokenizer.json (${tr.status}). Kontrollera sökvägen: ${TOKENIZER_URL}`);
+
+      // Backend
+      await tf.setBackend('webgl');
+      await tf.ready();
+
+      // Ladda tokenizer
+      tokenizer = await tr.json();
+
+      // Ladda modell
+      model = await tf.loadLayersModel(MODEL_URL);
+
+      // Snabb sanity: visa input shape om möjligt
+      const inShape = model?.inputs?.[0]?.shape ? JSON.stringify(model.inputs[0].shape) : '(okänd)';
+      const outShape = model?.outputs?.[0]?.shape ? JSON.stringify(model.outputs[0].shape) : '(okänd)';
+
+      showOk(`Modellen är laddad. TFJS ${tf.version.tfjs}. Input: ${inShape}, Output: ${outShape}`);
+      els.debug.textContent = `Debug: TFJS ${tf.version.tfjs} | modelUrl=${MODEL_URL} | tokenizerUrl=${TOKENIZER_URL}`;
+      setAnalyzeEnabled(true);
+
+    } catch (err) {
+      console.error(err);
+      showError(err?.message || String(err));
+      model = null;
+      tokenizer = null;
+      setAnalyzeEnabled(false);
+    }
+  }
+
+  async function reloadModel() {
+    // Städa lite minne
+    try {
+      if (model?.dispose) model.dispose();
+    } catch {}
+    model = null;
+    tokenizer = null;
+    await loadModel();
+  }
+
+  // ---- Prediktion ----
+  function pickLabelFromOutput(arr) {
+    // Vi antar 3 klasser: [negativ, neutral, positiv] ELLER [negativ, positiv] osv.
+    // Om det är 3: ta argmax och mappa till etiketter.
+    // Om det är 1: behandla som "positiv sannolikhet" (sigmoid) och gör 3-läge med trösklar.
+    if (!Array.isArray(arr)) throw new Error('Ogiltigt modell-output.');
+
+    if (arr.length === 3) {
+      let bestI = 0;
+      for (let i = 1; i < 3; i++) if (arr[i] > arr[bestI]) bestI = i;
+
+      // Vanlig ordning i sentiment: [neg, neu, pos] – men kan skilja. Justera vid behov.
+      const labels = ['Negativ', 'Neutral', 'Positiv'];
+      return { label: labels[bestI], scores: arr };
+    }
+
+    if (arr.length === 2) {
+      // [neg, pos] eller [pos, neg] – vi antar [neg, pos]
+      const label = arr[1] >= arr[0] ? 'Positiv' : 'Negativ';
+      return { label, scores: arr };
+    }
+
+    if (arr.length === 1) {
+      const p = arr[0];
+      // 3-läge via trösklar
+      if (p >= 0.6) return { label: 'Positiv', scores: [p] };
+      if (p <= 0.4) return { label: 'Negativ', scores: [p] };
+      return { label: 'Neutral', scores: [p] };
+    }
+
+    // fallback: argmax
+    let bestI = 0;
+    for (let i = 1; i < arr.length; i++) if (arr[i] > arr[bestI]) bestI = i;
+    return { label: `Klass ${bestI}`, scores: arr };
+  }
+
+  async function analyze() {
+    clearMessages();
+    els.result.style.display = 'none';
+    els.result.textContent = '';
+
+    const text = els.text.value.trim();
+    if (!text) {
+      showError('Skriv ett omdöme först.');
+      return;
+    }
+    if (!model || !tokenizer) {
+      showError('Modell/tokenizer är inte laddad. Klicka “Ladda om modellen”.');
+      return;
+    }
+
+    try {
+      const { sequence, maxLen } = textToSequence(text);
+
+      // Viktigt: Embedding kräver int32
+      const inputTensor = tf.tensor2d([sequence], [1, maxLen], 'int32');
+
+      // prediktera
+      const out = model.predict(inputTensor);
+      const data = await out.data();
+
+      // städa tensors
+      inputTensor.dispose();
+      if (out?.dispose) out.dispose();
+
+      const arr = Array.from(data);
+      const { label, scores } = pickLabelFromOutput(arr);
+
+      els.result.style.display = 'block';
+      els.result.innerHTML =
+        `<strong>Resultat: ${label}</strong><div style="margin-top:8px;color:#374151;">
+          Scores: ${scores.map(x => (typeof x === 'number' ? x.toFixed(4) : x)).join(', ')}
+        </div>`;
+
+    } catch (err) {
+      console.error(err);
+      showError(err?.message || String(err));
+    }
+  }
+
+  function setExample(s) {
+    els.text.value = s;
+    els.text.focus();
+  }
+
+  // Ladda modell direkt vid start
+  loadModel();
+</script>
 </body>
 </html>
+```
