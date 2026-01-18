@@ -1,4 +1,4 @@
-<!-- Version 13.30 -- >
+<! Build 13.37-->
 <!DOCTYPE html>
 <html lang="sv">
 <head>
@@ -91,7 +91,6 @@
       background:var(--btn);
     }
     button.secondary{ background:var(--btn2); }
-    button:disabled{ opacity:.55; cursor:not-allowed; }
 
     .result{
       margin-top:14px;
@@ -149,7 +148,6 @@
     }
   </style>
 
-  <!-- TFJS 4.22.0 (matchar din export bättre) -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
 </head>
 
@@ -165,7 +163,6 @@
     <textarea id="text" placeholder="Skriv ditt omdöme här… Till exempel: 'Fantastisk film med otroliga effekter!'"></textarea>
 
     <div class="row">
-      <!-- VIKTIGT: INTE disabled längre. Klick visar fel om modellen inte är laddad. -->
       <button id="btnAnalyze" onclick="analyze()">Analysera känsla</button>
       <button class="secondary" onclick="reloadModel()">Ladda om modellen</button>
       <span class="tiny">Modell: <code class="small">./tfjs_model/model.json</code></span>
@@ -185,14 +182,13 @@
 
     <details>
       <summary>🧪 Debug (klicka för att fälla in/ut)</summary>
-      <div class="tiny">Här ser du exakt vad som laddas + statuskoder.</div>
       <pre id="debug"></pre>
     </details>
   </div>
 
 <script>
-  // Byt gärna BUILD när du uppdaterar (cache-buster)
-  const BUILD = "2026-01-18-08";
+  // Ändra BUILD när du vill tvinga bort cache
+  const BUILD = "2026-01-18-09";
 
   const MODEL_URL = `./tfjs_model/model.json?v=${BUILD}`;
   const TOKENIZER_URL = `./tfjs_model/tokenizer.json?v=${BUILD}`;
@@ -209,9 +205,8 @@
     status: document.getElementById('status'),
   };
 
-  function log(line){
-    els.debug.textContent += line + "\n";
-  }
+  function log(line){ els.debug.textContent += line + "\n"; }
+  function setStatus(s){ els.status.textContent = s ? `Status: ${s}` : ""; }
 
   function showError(msg) {
     els.alert.style.display = 'block';
@@ -230,10 +225,6 @@
     els.ok.textContent = '';
   }
 
-  function setStatus(s){
-    els.status.textContent = s ? `Status: ${s}` : "";
-  }
-
   function normalizeText(s) {
     return (s || '')
       .toLowerCase()
@@ -242,22 +233,16 @@
       .trim();
   }
 
-  function getWordIndex(tokObj) {
-    return tokObj?.word_index || tokObj?.wordIndex || tokObj?.config?.word_index || tokObj?.config?.wordIndex || null;
-  }
+  function getWordIndex(tokObj) { return tokObj?.word_index || tokObj?.wordIndex || tokObj?.config?.word_index || null; }
   function getMaxLen(tokObj) {
-    const v = tokObj?.max_length ?? tokObj?.maxLen ?? tokObj?.config?.max_length ?? tokObj?.config?.maxLen;
+    const v = tokObj?.max_length ?? tokObj?.config?.max_length;
     const n = Number(v);
     return Number.isFinite(n) && n > 0 ? n : 20;
   }
   function getOOVIndex(tokObj, wordIndex) {
-    const direct = tokObj?.oov_index ?? tokObj?.oovIndex ?? tokObj?.config?.oov_index ?? tokObj?.config?.oovIndex;
-    const n = Number(direct);
-    if (Number.isFinite(n) && n >= 0) return n;
-
-    const oovToken = tokObj?.oov_token ?? tokObj?.oovToken ?? tokObj?.config?.oov_token ?? tokObj?.config?.oovToken;
-    if (oovToken && wordIndex && wordIndex[oovToken] != null) return wordIndex[oovToken];
-    if (wordIndex && wordIndex['<OOV>'] != null) return wordIndex['<OOV>'];
+    const oovToken = tokObj?.oov_token ?? tokObj?.config?.oov_token ?? "<OOV>";
+    if (wordIndex && wordIndex[oovToken] != null) return wordIndex[oovToken];
+    if (wordIndex && wordIndex["<OOV>"] != null) return wordIndex["<OOV>"];
     return 1;
   }
 
@@ -279,17 +264,9 @@
     return { padded, maxLen };
   }
 
-  async function fetchText(url){
-    const r = await fetch(url, { cache: "no-store" });
-    return { status: r.status, ok: r.ok, text: await r.text() };
-  }
-
-  function inspectModelJsonText(txt){
-    return {
-      hasBatchShape: txt.includes('"batch_shape"') || txt.includes("batch_shape"),
-      hasBatchInputShape: txt.includes('"batch_input_shape"') || txt.includes("batch_input_shape"),
-      hasInputShape: txt.includes('"input_shape"') || txt.includes("input_shape")
-    };
+  // Cache-busta även weight-filerna (.bin) – DETTA fixar din nuvarande mismatch!
+  function weightUrlConverter(url) {
+    return url.includes("?") ? `${url}&v=${BUILD}` : `${url}?v=${BUILD}`;
   }
 
   async function loadAll() {
@@ -298,52 +275,35 @@
     els.debug.textContent = '';
     setStatus("Laddar...");
 
-    log("TFJS version: " + (tf?.version?.tfjs ?? "okänd"));
+    log("TFJS: " + (tf?.version?.tfjs ?? "okänd"));
     log("BUILD: " + BUILD);
     log("MODEL_URL: " + MODEL_URL);
     log("TOKENIZER_URL: " + TOKENIZER_URL);
     log("----");
 
     try {
-      const mj = await fetchText(MODEL_URL);
-      log(`model.json status: ${mj.status}`);
-      if (!mj.ok) throw new Error(`Hittar inte model.json (${mj.status}).`);
-
-      const flags = inspectModelJsonText(mj.text);
-      log("model.json innehåller:");
-      log(" - batch_shape: " + flags.hasBatchShape);
-      log(" - batch_input_shape: " + flags.hasBatchInputShape);
-      log(" - input_shape: " + flags.hasInputShape);
-      log("----");
-
-      const tj = await fetch(TOKENIZER_URL, { cache: "no-store" });
-      log(`tokenizer.json status: ${tj.status}`);
-      if (!tj.ok) throw new Error(`Hittar inte tokenizer.json (${tj.status}).`);
-      tokenizer = await tj.json();
-
       await tf.setBackend('webgl');
       await tf.ready();
       log("Backend: " + tf.getBackend());
 
-      // Om detta kraschar är det fortfarande ett model.json-formatproblem
-      model = await tf.loadLayersModel(MODEL_URL);
+      const tj = await fetch(TOKENIZER_URL, { cache: "no-store" });
+      log("tokenizer.json status: " + tj.status);
+      if (!tj.ok) throw new Error(`Hittar inte tokenizer.json (${tj.status}).`);
+      tokenizer = await tj.json();
 
-      const inShape = model?.inputs?.[0]?.shape ? JSON.stringify(model.inputs[0].shape) : '(okänd)';
-      const outShape = model?.outputs?.[0]?.shape ? JSON.stringify(model.outputs[0].shape) : '(okänd)';
-      showOk(`Modellen är laddad. Input: ${inShape}, Output: ${outShape}`);
-      setStatus("Modell laddad ✅");
-
+      // Viktigt: weightUrlConverter cache-bustar group1-shard*.bin
+      model = await tf.loadLayersModel(MODEL_URL, { weightUrlConverter });
       log("Model loaded OK");
-      log("Input: " + inShape);
-      log("Output: " + outShape);
+      setStatus("Modell laddad ✅");
+      showOk("Modellen är laddad och klar.");
 
     } catch (err) {
       console.error(err);
-      showError(err?.message || String(err));
-      setStatus("Modell ej laddad ❌");
-      log("ERROR: " + (err?.message || String(err)));
       model = null;
       tokenizer = null;
+      setStatus("Modell ej laddad ❌");
+      showError(err?.message || String(err));
+      log("ERROR: " + (err?.message || String(err)));
     }
   }
 
@@ -360,13 +320,6 @@
       for (let i = 1; i < 3; i++) if (arr[i] > arr[best]) best = i;
       return { label: ['Negativ', 'Neutral', 'Positiv'][best], scores: arr };
     }
-    if (arr.length === 2) return { label: (arr[1] >= arr[0]) ? 'Positiv' : 'Negativ', scores: arr };
-    if (arr.length === 1) {
-      const p = arr[0];
-      if (p >= 0.6) return { label: 'Positiv', scores: [p] };
-      if (p <= 0.4) return { label: 'Negativ', scores: [p] };
-      return { label: 'Neutral', scores: [p] };
-    }
     let best = 0;
     for (let i = 1; i < arr.length; i++) if (arr[i] > arr[best]) best = i;
     return { label: `Klass ${best}`, scores: arr };
@@ -378,19 +331,10 @@
 
     const text = els.text.value.trim();
     if (!text) return showError('Skriv ett omdöme först.');
-
-    // Viktigt: knappen är klickbar, men vi kräver att modellen är laddad:
-    if (!model || !tokenizer) {
-      return showError(
-        "Modellen är inte laddad ännu.\n" +
-        "Klicka “Ladda om modellen” och kontrollera Debug-rutan för statuskoder (200/404)."
-      );
-    }
+    if (!model || !tokenizer) return showError('Modellen är inte laddad. Klicka “Ladda om modellen”.');
 
     try {
       const { padded, maxLen } = textToPaddedSequence(text);
-
-      // int32 till Embedding
       const inputTensor = tf.tensor2d([padded], [1, maxLen], 'int32');
 
       const out = model.predict(inputTensor);
@@ -420,10 +364,7 @@
     els.text.focus();
   }
 
-  // Viktigt: kör säkert efter att DOM + scripts är klara
-  window.addEventListener("load", () => {
-    loadAll();
-  });
+  window.addEventListener("load", () => loadAll());
 </script>
 </body>
 </html>
