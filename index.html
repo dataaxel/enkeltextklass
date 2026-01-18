@@ -388,31 +388,43 @@
                 const sequence = tokenizeText(text);
                 console.log('Sequence:', sequence);
                 
-                // Skapa input tensor med rätt shape [batchSize, sequenceLength]
-                const inputTensor = tf.tensor2d([sequence], [1, tokenizer.max_length]);
-                console.log('Input shape:', inputTensor.shape);
+                // Prova olika sätt att skapa input tensor
+                let prediction;
                 
-                // Gör prediction
-                const predictionTensor = model.predict(inputTensor);
-                const prediction = await predictionTensor.data();
-                console.log('Prediction:', prediction);
+                // Metod 1: Använd tf.tidy för bättre minneshantering
+                prediction = tf.tidy(() => {
+                    // Skapa input som 2D tensor
+                    const inputTensor = tf.tensor2d(sequence, [1, tokenizer.max_length]);
+                    console.log('Input tensor shape:', inputTensor.shape);
+                    
+                    // Använd model.predict() med explicit config
+                    const result = model.predict(inputTensor, {
+                        batchSize: 1
+                    });
+                    
+                    return result;
+                });
+                
+                const predictionData = await prediction.data();
+                console.log('Prediction:', predictionData);
                 
                 // Hitta den högsta sannolikheten
                 const sentiments = ['negativ', 'neutral', 'positiv'];
-                const maxIndex = prediction.indexOf(Math.max(...prediction));
+                const predArray = Array.from(predictionData);
+                const maxIndex = predArray.indexOf(Math.max(...predArray));
                 const sentiment = sentiments[maxIndex];
-                const confidence = (prediction[maxIndex] * 100).toFixed(1);
+                const confidence = (predArray[maxIndex] * 100).toFixed(1);
                 
                 // Visa resultat
-                showResult(sentiment, confidence, prediction);
+                showResult(sentiment, confidence, predArray);
                 
-                // Rensa tensors
-                inputTensor.dispose();
-                predictionTensor.dispose();
+                // Rensa
+                prediction.dispose();
                 
             } catch (error) {
                 console.error('Fel vid prediction:', error);
-                alert('Fel vid analys: ' + error.message);
+                console.error('Error stack:', error.stack);
+                alert('Fel vid analys: ' + error.message + '\n\nKontrollera console (F12) för mer info.');
             }
         }
         
